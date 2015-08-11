@@ -29,9 +29,9 @@ sampler normalMapSampler = sampler_state
 sampler diffuseSampler = sampler_state
 {
     Texture = (Texture);
-    MAGFILTER = POINT;
-	MINFILTER = POINT;
-	MIPFILTER = POINT;
+    MAGFILTER = LINEAR;
+	MINFILTER = LINEAR;
+	MIPFILTER = LINEAR;
     AddressU = Wrap;
     AddressV = Wrap;
 };
@@ -120,7 +120,7 @@ PixelShaderOutput PSTexturedColorNoLight(TexturedVertexShaderOutput input) : COL
 	float4 texColor = tex2D(diffuseSampler, input.Texcoord);
     output.Color = texColor * DiffuseColor;
 	output.Color.a = texColor.a * Alpha;
-	clip(texColor.a < 0.1f ? -1 : 1);
+	clip(texColor.a < 0.3f ? -1 : 1);
 
     return output;
 }

@@ -190,7 +190,31 @@ namespace Game
                     TextOrigin = new Vector2(32, 32),
                     TextColor = new Vector3(1, 0, 0),
                     Label = "HELLO COERCEO",
-                    FontScale = 8.0f,
+                    FontScale = 4.0f,
+                    Transparent = true
+                }));
+            Gui.uiRoot.AddChild(new Gem.Gui.UIItem(
+                "TILE-COUNT",
+                new Gem.Gui.QuadShape(0, 0, 1, 1),
+                new Gem.Gui.GuiProperties
+                {
+                    Font = new Gem.Gui.BitmapFont(Content.Load<Texture2D>("small-font"), 6, 8, 6),
+                    TextOrigin = new Vector2(32, 56),
+                    TextColor = new Vector3(1, 0, 0),
+                    Label = "TILE-COUNT",
+                    FontScale = 4.0f,
+                    Transparent = true
+                }));
+            Gui.uiRoot.AddChild(new Gem.Gui.UIItem(
+                "STATS",
+                new Gem.Gui.QuadShape(0, 0, 1, 1),
+                new Gem.Gui.GuiProperties
+                {
+                    Font = new Gem.Gui.BitmapFont(Content.Load<Texture2D>("small-font"), 6, 8, 6),
+                    TextOrigin = new Vector2(768, 32),
+                    TextColor = new Vector3(1, 0, 0),
+                    Label = "STATS",
+                    FontScale = 4.0f,
                     Transparent = true
                 }));
             Gui.RenderOnTop = true;
@@ -200,14 +224,20 @@ namespace Game
 
             PushInputState(new Input.TurnScheduler());
 
+            AI.StartAI("AI.TXT");
         }
 
         public void DisplayBoard(Board Board)
         {
+            AI.FocusOn(Board);
+
             if (Board.Header.WhoseTurnNext == 0)
                 Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "White to move");
             else
                 Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "Black to move");
+
+            Gui.Find("TILE-COUNT").Properties[0].Values.Upsert("label", String.Format("TILES: {0}",
+                CurrentBoard.Tiles.Count(t => t.IsHeldBy(CurrentBoard.Header.WhoseTurnNext))));
 
             foreach (var piece in PieceNodes) 
                 piece.Hidden = true;
@@ -295,6 +325,13 @@ namespace Game
 
             var eyeVector = Camera.GetEyeVector();
             Gui.Orientation.Orientation.Z = Gem.Math.Vector.AngleBetweenVectors(Vector2.UnitY, Vector2.Normalize(new Vector2(eyeVector.X, eyeVector.Y)));
+
+            Gui.Find("STATS").Properties[0].Values.Upsert("label", String.Format("AI STATS\nCE:{0}\nOC:{1}\nXP:{2}\nMX:{3}",
+                AI.CountOfConfigurationsExplored,
+                AI.CountOfOpenConfigurations,
+                AI.Exponential,
+                AI.MaxExponential));
+
         }
 
         private struct HoverItem
@@ -322,9 +359,9 @@ namespace Game
             RenderContext.LightingEnabled = true;
             RenderContext.UVTransform = Matrix.Identity;
             RenderContext.World = Matrix.Identity;
-            RenderContext.SetLight(0, new Vector3(0.0f, 3.0f, 2.0f), 8, new Vector3(1, 1, 1));
-            RenderContext.SetLight(1, new Vector3(10.0f, 10.0f, 7.5f), 10, new Vector3(1, 1, 1));
-            RenderContext.SetLight(2, new Vector3(-3.0f, -3.5f, 3.5f), 10, new Vector3(1, 1, 1));
+            RenderContext.SetLight(0, new Vector3(0.0f, 10.0f, 4.0f), 20, new Vector3(1, 1, 1));
+            RenderContext.SetLight(1, new Vector3(10.0f, 10.0f, 7.5f), 20, new Vector3(1, 1, 1));
+            RenderContext.SetLight(2, new Vector3(-10.0f, -10.5f, 3.5f), 20, new Vector3(1, 1, 1));
             RenderContext.ActiveLightCount = 3;
             RenderContext.Texture = RenderContext.White;
             RenderContext.NormalMap = RenderContext.NeutralNormals;

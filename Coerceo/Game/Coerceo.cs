@@ -55,40 +55,101 @@ namespace Game
         }
 
         public byte WhoseTurnNext { get { return (byte)((Data & 0x80) >> 7); } }
+        public byte TurnDepth { get { return (byte)(Data & 0x7F); } }
+
     }
 
-    public struct Board
+    public unsafe struct Board
     {
-        byte[] Data;
+        fixed byte Data[20];
 
         public static Board Empty() { return new Board(new byte[20]); }
 
         public Board(byte[] Source)
         {
-            Data = new byte[20];
-            Source.CopyTo(Data, 0);
+            fixed (byte* x = Data)
+                for (int i = 0; i < 20; ++i)
+                    x[i] = Source[i];
         }
 
-        public StateHeader Header { get { return new StateHeader(Data[0]); } }
+        public Board(Board Source)
+        {
+            fixed (byte* x = Data)
+                for (var i = 0; i < 20; ++i)
+                    x[i] = Source.Data[i];
+        }
 
-        public IEnumerable<Tile> Tiles { get { for (var i = 1; i < 20; ++i) yield return new Tile((byte)(i - 1), Data[i]); } }
-        public IEnumerable<byte> Triangles { get { foreach (var tile in Tiles) for (var i = 1; i < 6; ++i) yield return tile.GetTriangle((byte)i); } }
+        public StateHeader Header { get { fixed(byte* x = Data) return new StateHeader(x[0]); } }
 
-        public Tile GetTile(byte Index) { return new Tile(Index, Data[Index + 1]); }
+        public IEnumerable<Tile> Tiles { get { for (byte i = 0; i < 19; ++i) yield return GetTile(i); } }
+        public IEnumerable<byte> Triangles { get { foreach (var tile in Tiles) for (byte i = 1; i < 6; ++i) yield return tile.GetTriangle(i); } }
+
+        public Tile GetTile(byte Index) { fixed (byte * x = Data) return new Tile(Index, x[Index + 1]); }
         public byte GetTriangle(Coordinate Coordinate) { return GetTile(Coordinate.Tile).GetTriangle(Coordinate.Triangle); }
 
         public Board WithTile(byte Index, Tile Tile)
         {
-                var r = new Board(Data);
+                var r = new Board(this);
                 r.Data[Index + 1] = Tile.Data;
                 return r;
         }
 
         public Board WithHeader(StateHeader Header)
         {
-            var r = new Board(Data);
+            var r = new Board(this);
             r.Data[0] = Header.Data;
             return r;
+        }
+
+        public override int GetHashCode()
+        {
+            fixed (byte* x = Data)
+                return (x[0x07] << 24) + (x[0x08] << 16) + (x[0x0C] << 8) + x[0x0D];
+        }
+
+        public override bool Equals(object obj)
+        {
+            var other = obj as Board?;
+            if (other == null || !other.HasValue) return false;
+
+            fixed (byte* x = Data)
+                for (byte i = 0; i < 20; ++i)
+                    if (x[i] != other.Value._data(i)) return false;
+            return true;
+        }
+
+        private byte _data(byte i)
+        {
+            fixed (byte* x = Data) return x[i];
+        }
+
+        public bool Equals(Board Other)
+        {
+            fixed (byte* x = Data)
+                for (byte i = 0; i < 20; ++i)
+                    if (x[i] != Other._data(i)) return false;
+            return true;
+        }
+
+        public override string ToString()
+        {
+            var r = new StringBuilder();
+            fixed (byte* x = Data)
+                for (byte i = 0; i < 20; ++i)
+                    r.AppendFormat("{0:X2}", x[i]);
+            return r.ToString();
+        }
+
+        public byte[] Bytes
+        {
+            get
+            {
+                var r = new byte[20]; 
+                fixed (byte* x = Data) 
+                    for (var i = 0; i < 20; ++i) 
+                        r[i] = x[i]; 
+                return r;
+            }
         }
     }
 
@@ -111,19 +172,31 @@ namespace Game
 
     public struct Move
     {
-        int Data;
+        ushort Data;
 
         public Move(Coordinate Coordinate, byte Direction, MoveType Type)
         {
-            Data = (Coordinate.Data << 24) + (Direction << 21) + ((byte)Type << 19);
+            Data = (ushort)((Coordinate.Data << 8) + (Direction << 5) + ((byte)Type << 3));
         }
 
-        public Coordinate Coordinate { get { return new Coordinate((byte)(Data >> 24)); } }
+        public Move(byte[] bytes)
+        {
+            Data = (ushort)(((int)bytes[0] << 8) + bytes[1]);
+        }
+
+        public Coordinate Coordinate { get { return new Coordinate((byte)(Data >> 8)); } }
         public byte Tile { get { return Coordinate.Tile; } }
         public byte Triangle { get { return Coordinate.Triangle; } }
 
-        public byte Direction { get { return (byte)((Data >> 21) & 0x07); } }
-        public byte Type { get { return (byte)((Data >> 19) & 0x03); } }
+        public byte Direction { get { return (byte)((Data >> 5) & 0x07); } }
+        public byte Type { get { return (byte)((Data >> 3) & 0x03); } }
+
+        public override string ToString()
+        {
+            return String.Format("{0:X4}", Data);
+        }
+
+        public byte[] Bytes { get { return BitConverter.GetBytes(Data); } }
     }
 
     public static class Coerceo
@@ -145,12 +218,12 @@ namespace Game
             else
                 return new Coordinate(Tables.TileAdjacency[Of.Tile][relativeMove.Direction], relativeMove.Triangle);
         }
- 
+
         struct AdjacentRun
-			{
-				public int Start;
-				public int End;
-				public int Count;
+        {
+            public int Start;
+            public int End;
+            public int Count;
 
             public AdjacentRun(int S, int E, int C)
             {
@@ -158,7 +231,7 @@ namespace Game
                 End = E;
                 Count = C;
             }
-			}
+        }
 
 
         public static Board ApplyMove(Board Board, Move Move)
@@ -166,35 +239,33 @@ namespace Game
 
             var checkForSurrounded = new List<Coordinate>();
             var checkForEmpty = new List<byte>();
+            var sniping = false;
 
             switch ((MoveType)Move.Type)
             {
-                /*
-                case Resign: 
-                    End game in loss for Board.WhoseTurn
-
-                case Trade in tiles to snipe piece:
+                case MoveType.Trade:
                     {
                         // Verify move is legal.
 
                         // Reject move if attempting to snipe own piece.
-                        if (Move.Triangle % 2 == Board.WhoseTurn) return Rejected;
+                        if (Move.Triangle % 2 != Board.Header.WhoseTurnNext) throw new InvalidOperationException();
 
                         // Reject move if player does not hold at least two tiles.
-                        var heldTileCount = Board.Tiles.Count(t => t.IsHeldBy(Board.WhoseTurnNext));
-                        if (heldTileCount < 2) return Rejected;
+                        var heldTileCount = Board.Tiles.Count(t => t.IsHeldBy(Board.Header.WhoseTurnNext));
+                        if (heldTileCount < 2) throw new InvalidOperationException();
 
                         // Reject move if there is no enemy piece at the location.
-                        if (Board.GetTriangle(Move.Coordinate) == 0) return Rejected;
+                        if (Board.GetTriangle(Move.Coordinate) == 0) throw new InvalidOperationException();
 
                         // Turn is legal, mutate board.
-                        foreach (var tile in Board.Tiles.Where(t => t.IsHeldBy(Board.WhoseTurnNext).Take(2)))
-                            Board = Board.WithTile(tile.ID, tile.WithStatus(OutOfPlay));
+                        foreach (var tile in Board.Tiles.Where(t => t.IsHeldBy(Board.Header.WhoseTurnNext)).Take(2))
+                            Board = Board.WithTile(tile.ID, tile.WithStatus(0x03));
                         Board = Board.WithTile(Move.Tile, Board.GetTile(Move.Tile).WithTriangle(Move.Triangle, 0));
 
                         checkForEmpty.Add(Move.Tile);
+                        sniping = true;
                     }
-                */
+                    break;
                 case MoveType.MovePiece:
                     {
                         // Verify move is legal.
@@ -231,11 +302,6 @@ namespace Game
                     }
                     break;
             }
-
-            if (Board.Header.WhoseTurnNext == 0)
-                Board = Board.WithHeader(new StateHeader(0x80));
-            else
-                Board = Board.WithHeader(new StateHeader(0x00));
 
             while (checkForSurrounded.Count > 0 || checkForEmpty.Count > 0)
             {
@@ -302,102 +368,80 @@ namespace Game
                     }
 
                     if (runsCount == 1 && runs[0].Count <= 3)
-                        Board = Board.WithTile(tileID, Board.GetTile(tileID).WithStatus((byte)(Board.Header.WhoseTurnNext + 1)));
-
-                    // Mark adjacent triangles for surround consideration.
-                    for (var x = 0; x < 6; ++x)
                     {
-                        // Don't check own pieces for surround
-                        if (x % 2 != Board.Header.WhoseTurnNext) continue;
+                        if (sniping)
+                            Board = Board.WithTile(tileID, Board.GetTile(tileID).WithStatus(0x03));
+                        else
+                            Board = Board.WithTile(tileID, Board.GetTile(tileID).WithStatus((byte)(Board.Header.WhoseTurnNext + 1)));
 
-                        // Don't check tiles that don't exist.
-                        var neighbor = Tables.TileAdjacency[tileID][x];
-                        if (neighbor == 0xFF || Board.GetTile(neighbor).IsOutOfPlay()) continue;
 
-                        checkForSurrounded.Add(new Coordinate(neighbor, Tables.ExposedAdjacency[x]));
-                    }
+                        // Mark adjacent triangles for surround consideration.
+                        for (var x = 0; x < 6; ++x)
+                        {
+                            // Don't check own pieces for surround
+                            if (Tables.ExposedAdjacency[x] % 2 != Board.Header.WhoseTurnNext) continue;
 
-                    // Check neighboring tiles to see if they can be removed.
-                    for (var x = 0; x < 6; ++x)
-                    {
-                        var neighbor = Tables.TileAdjacency[tileID][x];
-                        if (neighbor == 0xFF || Board.GetTile(neighbor).IsOutOfPlay()) continue;
-                        checkForEmpty.Add(neighbor);
+                            // Don't check tiles that don't exist.
+                            var neighbor = Tables.TileAdjacency[tileID][x];
+                            if (neighbor == 0xFF || Board.GetTile(neighbor).IsOutOfPlay()) continue;
+
+                            checkForSurrounded.Add(new Coordinate(neighbor, Tables.ExposedAdjacency[x]));
+                        }
+
+                        // Check neighboring tiles to see if they can be removed.
+                        for (var x = 0; x < 6; ++x)
+                        {
+                            var neighbor = Tables.TileAdjacency[tileID][x];
+                            if (neighbor == 0xFF || Board.GetTile(neighbor).IsOutOfPlay()) continue;
+                            checkForEmpty.Add(neighbor);
+                        }
                     }
                 }
             }
 
+            if (Board.Header.WhoseTurnNext == 0)
+                Board = Board.WithHeader(new StateHeader(0x80));
+            else
+                Board = Board.WithHeader(new StateHeader(0x00));
+
             return Board;
         }
 
-    /*
-
-
-AI Game State Graph
-
-Cycles are very possible.
-
-class StateTransition
-{
-	public Move Move;
-	public Board Board;
-}
-
-var GameStateTable = new Dictionary<Board, List<StateTransition>>();
-
-List<StateTransition> QueryForMoves(Board Board)
-{
-	List<StateTransition> result;
-	if (GameStateTable.TryGetValue(Board, out result))
-		return result;
-	else
-	{
-		result = new List<StateTransition>(EnumerateLegalMoves(Board).Select(m => new StateTransition(m, ApplyMove(Board, m))));
-		GameStateTable.Add(Board, result);
-		return result;
-	}
-}
-
-
-IEnumerable<Move> EnumerateLegalMoves(Board)
-{
-	var canSnipe = Board.Tiles.Count(t => t.IsHeldBy(Board.WhoseTurnNext)) >= 2;
-
-	for (var t = 0; t < 19; ++t)
-	{
-		var tile = Board.GetTile(t);
-		if (tile.IsOutOfPlay())
-			continue;
-		for (var x = 0; x < 6; ++x)
-		{
-			if (x % 2 == Board.WhoseTurnNext)
-			{
-				if (tile.GetTriangle(x) == 1)
-					foreach (var move in EnumerateLegalPieceMoves(new TriangleCoordinate(t, x), Board))
-						yield return move;
-			}
-			else
-			{
-				if (tile.GetTriangle(x) == 1 && canSnipe)
-					yield return new Move(t, x, 0, MoveType.Snipe);
-			}
-		}
-	}
-}
-         * 
-         */
+        public static IEnumerable<Move> EnumerateLegalMoves(Board Board)
+        {
+            for (byte t = 0; t < 19; ++t)
+            {
+                var tile = Board.GetTile(t);
+                if (tile.IsOutOfPlay()) continue;
+                for (byte x = 0; x < 6; ++x)
+                    foreach (var move in EnumerateLegalPieceMoves(new Coordinate(t, x), Board))
+                        yield return move;
+            }
+        }
 
         public static IEnumerable<Move> EnumerateLegalPieceMoves(Coordinate Piece, Board Board)
         {
             if (Piece.Triangle % 2 != Board.Header.WhoseTurnNext)
             {
-                for (byte x = 0; x < 6; ++x)
+                if (Board.GetTriangle(Piece) != 0)
                 {
-                    var neighbor = FindMoveNeighbor(Piece, x);
-                    if (neighbor.Invalid || Board.GetTile(neighbor.Tile).IsOutOfPlay())
-                        continue;
-                    if (Board.GetTriangle(neighbor) == 0)
-                        yield return new Move(Piece, x, MoveType.MovePiece);
+                    for (byte x = 0; x < 6; ++x)
+                    {
+                        var neighbor = FindMoveNeighbor(Piece, x);
+                        if (neighbor.Invalid || Board.GetTile(neighbor.Tile).IsOutOfPlay())
+                            continue;
+                        if (Board.GetTriangle(neighbor) == 0)
+                            yield return new Move(Piece, x, MoveType.MovePiece);
+                    }
+                }
+            }
+            else
+            {
+                if (Board.GetTriangle(Piece) != 0)
+                {
+                    var canSnipe = Board.Tiles.Count(t => t.IsHeldBy(Board.Header.WhoseTurnNext)) >= 2;
+                    if (canSnipe)
+                        yield return new Move(Piece, 0, MoveType.Trade);
                 }
             }
         }

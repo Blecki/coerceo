@@ -1,4 +1,5 @@
-
+Todo: 
+	Rule fix - Don't award player tiles if they are emptied as a result of sniping.
 
 COERCEO
 
@@ -74,6 +75,8 @@ The starting board - 19 tiles
  \__/10\__/11\__/          
     \__/12\__/            
        \__/
+
+      06 07 0B 0C
 
 Initial Piece Placements (tile, triangle):
 

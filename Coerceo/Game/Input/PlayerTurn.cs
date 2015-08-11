@@ -41,8 +41,18 @@ namespace Game.Input
                 hoverMesh.Hilite = true;
                 if (Game.Main.Input.Check("CLICK"))
                 {
-                    MovePieceState = new MovePiece(coordinate.Value);
-                    Game.PushInputState(MovePieceState);
+                    if (coordinate.Value.Triangle % 2 != Game.CurrentBoard.Header.WhoseTurnNext)
+                    {
+                        MovePieceState = new MovePiece(coordinate.Value);
+                        Game.PushInputState(MovePieceState);
+                    }
+                    else
+                    {
+                        var legalSnipeMove = Coerceo.EnumerateLegalPieceMoves(coordinate.Value, Game.CurrentBoard).First();
+                        var newBoard = Coerceo.ApplyMove(Game.CurrentBoard, legalSnipeMove);
+                        Game.CurrentBoard = newBoard;
+                        Game.PopInputState();
+                    }
                 }
             }
         }
