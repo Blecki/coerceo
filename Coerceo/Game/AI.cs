@@ -9,13 +9,34 @@ namespace Game
 {
     public struct StateTransition
     {
-        public Move Move;
         public Board Board;
         public int Score;
+        public Move Move;
+        public byte ScoreDepth;
+        public byte ScoreAlgorithm;
 
-        public override string ToString()
+        public StateTransition(byte[] Source)
         {
-            return Move.ToString() + Board.ToString() + String.Format("{0:X8}", Score);
+            unsafe
+            {
+                Board = new Board(Source, 0);
+                Score = BitConverter.ToInt32(Source, sizeof(Board));
+                Move = new Move(Source, sizeof(Board) + sizeof(int));
+                ScoreDepth = Source[sizeof(Board) + sizeof(int) + sizeof(Move)];
+                ScoreAlgorithm = Source[sizeof(Board) + sizeof(int) + sizeof(Move) + 1];
+            }
+        }
+
+        public StateTransition WithScoring(byte Algorithm, byte Depth, int Score)
+        {
+            return new StateTransition
+            {
+                Board = this.Board,
+                Score = Score,
+                Move = this.Move,
+                ScoreDepth = Depth,
+                ScoreAlgorithm = Algorithm
+            };
         }
     }
 
@@ -95,45 +116,38 @@ namespace Game
         {
             var StatesCopy = new Dictionary<Board, List<StateTransition>>();
 
-            if (System.IO.File.Exists(Filename))
+            /*if (System.IO.File.Exists(Filename))
             {
-                var file = System.IO.File.OpenRead(Filename);
-                var buffer = new byte[20];
-
-                while (true)
+                unsafe
                 {
-                    var read = file.Read(buffer, 0, 20);
-                    if (read != 20) break;
+                    var file = System.IO.File.OpenRead(Filename);
+                    var buffer = new byte[sizeof(StateTransition)];
 
-                    var board = new Board(buffer);
-                    var transitions = new List<StateTransition>();
-
-                    read = file.Read(buffer, 0, 4);
-
-                    var transitionCount = BitConverter.ToInt32(buffer, 0);
-
-                    for (var i = 0; i < transitionCount; ++i)
+                    while (true)
                     {
-                        var transition = new StateTransition();
+                        var read = file.Read(buffer, 0, sizeof(Board));
+                        if (read != sizeof(Board)) break;
 
-                        read = file.Read(buffer, 0, 2);
-                        transition.Move = new Move(buffer);
-
-                        read = file.Read(buffer, 0, 20);
-                        transition.Board = new Board(buffer);
+                        var board = new Board(buffer, 0);
+                        var transitions = new List<StateTransition>();
 
                         read = file.Read(buffer, 0, 4);
-                        transition.Score = BitConverter.ToInt32(buffer, 0);
 
-                        transitions.Add(transition);
+                        var transitionCount = BitConverter.ToInt32(buffer, 0);
+
+                        for (var i = 0; i < transitionCount; ++i)
+                        {
+                            read = file.Read(buffer, 0, sizeof(StateTransition));
+                            transitions.Add(new StateTransition(buffer));
+                        }
+
+                        GameStates.Add(board, transitions);
+                        StatesCopy.Add(board, transitions);
                     }
 
-                    GameStates.Add(board, transitions);
-                    StatesCopy.Add(board, transitions);
+                    file.Close();
                 }
-
-                file.Close();
-            }
+            }*/
 
             (new System.Threading.Thread(WorkerThread)).Start();
             (new System.Threading.Thread(WorkerThread)).Start();
@@ -142,9 +156,8 @@ namespace Game
 
             File = System.IO.File.Open(Filename, System.IO.FileMode.Append);
 
-            (new System.Threading.Thread(SaveThread)).Start();
-
-
+            //(new System.Threading.Thread(SaveThread)).Start();
+            
             Stage = 1;
 
             var discoveredQueue = new List<Board>();
@@ -184,7 +197,7 @@ namespace Game
                 }
                 StateLock.ReleaseMutex();
 
-                if (toConsider != null && toConsider.HasValue) QueryForMoves(toConsider.Value);
+                if (toConsider != null && toConsider.HasValue) QueryForMoves(toConsider.Value, 2);
             }
         }
 
@@ -222,7 +235,7 @@ namespace Game
             StateLock.ReleaseMutex();
         }
 
-        public static List<StateTransition> QueryForMoves(Board Board)
+        public static List<StateTransition> QueryForMoves(Board Board, byte ScoringDepth)
         {
             List<StateTransition> result;
 
@@ -239,35 +252,47 @@ namespace Game
                     Score = 0
                 }));
 
-
                 StateLock.WaitOne();
 
-                if (!GameStates.ContainsKey(Board))
-                {
-                    GameStates.Upsert(Board, result);
-                    var newConfigurationCount = 0;
+                for (var i = 0; i < result.Count; ++i)
+                    if (!GameStates.ContainsKey(result[i].Board))
+                        OpenConfigurations.Add(result[i].Board);
 
-                    foreach (var postMove in result)
-                    {
-                        if (!GameStates.ContainsKey(postMove.Board))
-                        {
-                            newConfigurationCount += 1;
-                            OpenConfigurations.Add(postMove.Board);
-                        }
-                    }
+                GameStates.Upsert(Board, result);
 
-                    LastExponentials[NextLastExponential++] = newConfigurationCount;
-                    if (NextLastExponential == LastExponentials.Length) NextLastExponential = 0;
+                StateLock.ReleaseMutex();
 
-                    SaveLock.WaitOne();
-                    PendingWrites.Add(Tuple.Create(Board, result));
-                    SaveLock.ReleaseMutex();
-                }
+                //SaveLock.WaitOne();
+                //PendingWrites.Add(Tuple.Create(Board, result));
+                //SaveLock.ReleaseMutex();
+            }
+            else
+                StateLock.ReleaseMutex();
+
+            for (var i = 0; i < result.Count; ++i)
+            {
+                if (result[i].ScoreDepth < ScoringDepth)
+                    result[i] = result[i].WithScoring(1, ScoringDepth, ScoreBoard(result[i].Board, ScoringDepth));
             }
 
-            StateLock.ReleaseMutex();
-
             return result;
+        }
+
+        public static int ScoreBoard(Board Board, byte ScoringDepth)
+        {
+            var previousPlayer = (byte)~Board.Header.WhoseTurnNext;
+
+            var r = 0;
+
+            r -= 20 * Board.CountOfHeldTiles(Board.Header.WhoseTurnNext);
+            r += 10 * Board.CountOfHeldTiles(previousPlayer);
+
+            var subMoves = QueryForMoves(Board, (byte)(ScoringDepth - 1));
+            var total = subMoves.Sum(m => m.Score);
+
+            r = (r + r + (-total / subMoves.Count)) / 3;
+
+            return r;
         }
     }
 }

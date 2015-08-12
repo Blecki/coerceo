@@ -36,6 +36,13 @@ namespace Game
         public bool IsHeldBy(byte Player) { return ((Data & 0xC0) >> 6) == (Player + 1); }
         public bool IsEmpty() { return (Data & 0x3F) == 0; }
         public bool IsOutOfPlay() { return (Data & 0xC0) != 0; }
+        public int CountOfPieces(byte Player)
+        {
+            var r = 0;
+            for (byte i = 0; i < 6; ++i)
+                if (i % 2 != Player && GetTriangle(i) != 0) r += 1;
+            return r;
+        }
     }
 
     /*
@@ -63,13 +70,13 @@ namespace Game
     {
         fixed byte Data[20];
 
-        public static Board Empty() { return new Board(new byte[20]); }
+        public static Board Empty() { return new Board(new byte[20], 0); }
 
-        public Board(byte[] Source)
+        public Board(byte[] Source, int offset)
         {
             fixed (byte* x = Data)
                 for (int i = 0; i < 20; ++i)
-                    x[i] = Source[i];
+                    x[i] = Source[i + offset];
         }
 
         public Board(Board Source)
@@ -99,6 +106,16 @@ namespace Game
             var r = new Board(this);
             r.Data[0] = Header.Data;
             return r;
+        }
+
+        public int CountOfHeldTiles(byte Player)
+        {
+            return Tiles.Count(t => t.IsHeldBy(Player));
+        }
+
+        public int CountOfPieces(byte Player)
+        {
+            return Tiles.Sum(t => t.CountOfPieces(Player));
         }
 
         public override int GetHashCode()
@@ -179,9 +196,9 @@ namespace Game
             Data = (ushort)((Coordinate.Data << 8) + (Direction << 5) + ((byte)Type << 3));
         }
 
-        public Move(byte[] bytes)
+        public Move(byte[] bytes, int offset)
         {
-            Data = (ushort)(((int)bytes[0] << 8) + bytes[1]);
+            Data = (ushort)(((int)bytes[0 + offset] << 8) + bytes[1 + offset]);
         }
 
         public Coordinate Coordinate { get { return new Coordinate((byte)(Data >> 8)); } }
