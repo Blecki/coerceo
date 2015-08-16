@@ -1,0 +1,24 @@
+Blecki's Coerceo AI Postmortem
+
+From the start, I knew I wanted to do AI. At first, I had this idea that I would be able to precompute every possible sequence of moves, and rank them, and possibly store these moves on disc and distribute this database. It would have created a 'perfect' AI - it would always play the move most likely to lead to it winning. I thought that the search space would shrink rapidly, because of the mechanic of removing tiles. Well, it does. But not in time. The opening board has 48 possible moves. The second board has up to 53. So does the third. And the fourth. That's 7 million board configurations after just four moves. Every game I've played has taken more than 100 moves. According to my calculator, 50 to the power of 100 is ERR. I'm not sure how much ERR is but I think it's a lot. If I hadn't wasted most of the week trying to brute force it, I'd have an even better AI to show now.
+
+Some facts:
+	I am not good at Coerceo.
+	My AI is much better than I am.
+
+I do not know if my AI is good at Coerceo. I can't beat it. I've tried. 
+
+Anyway, onto code.
+
+I pulled all of the rendering code out of another project. This got me mesh generation and things on the screen very quickly, so I could concentrate on the game itself.
+
+I decided early that instead of messing around with hex coordinates, I would use lookup tables. All the tables are in Game/Tables.cs. They are straightforward.
+
+The only tricky part to implementing the game is detecting removable tiles. I decided to find 'runs' of adjacent tiles, such that a tile adjacent on sides 1,2,3 and 5 would get two runs - 1 to 3, and 5 to 5. I had to be careful to paste the first and last side together into a single run. Then, it was trivial to tell if the tile could be removed. Does it have only 1 run of 3 sides or less? If yes, remove it.
+
+The algorithm for applying a move to a board is in Game/Coerceo.cs. It is not that terribly complicated.
+
+On to the main show, the AI. Originally I went with a threaded solution, but I had all sorts of issues. The idea was that the AI would think ahead, and have some of the calculations done already before it was time to decide on a move. In practice, the AI never got more than 1 level down and I had to wait for it to finish anyway. The problem was that the AI is particurally bad at predicting what the player will do. I ditched the 'thinking' thread in favor of just considering moves on demand. 
+A big problem was the size of the search space. It takes a long time for the AI to consider and score the 7 million moves it would have to to go just 4 moves deep. The AI avoids this by only considering the best moves. It looks ahead, but it assumes that moves that look good by themselves are more likely to prove to be good moves in the future. If this proves not to be the case, it will consider other moves, but when this assumption holds, it doesn't bother. This means occasionally the AI misses a move that leads to good things because of an immediate negative consequence.
+Moves are scored based on a simple heuristic of pieces taken plus tiles picked up. There's a small favor given to moves that move pieces closer to the center of the board. This encourages the AI to develop it's pieces. The AI then looks at the other player's follow up moves. It finds the best follow up move, and applies it as a negative factor to the move. So if a move is followed by the enemy taking the AI's piece, that move would be scored very poorly.
+And then... no, actually, that's it. Occasionally I'll threaten the AI's piece, and it won't move the threatened piece, and I wonder, why the hell not? And then I see it took my piece instead and now I can't counter attack. Yeah. It's not bad.

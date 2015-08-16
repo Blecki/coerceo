@@ -70,8 +70,9 @@ namespace Game
 
             if (Entry.Moves.Count == 0)
             {
-                // This board is a dead end - the player lost.
-                Entry.ScoreAdjustment = int.MinValue;
+                // This board is a dead end - the player lost. It gets a strong negative penalty, but not too strong
+                // or it will wrap and the other player will think this move is really fantastic.
+                Entry.ScoreAdjustment = -100000;
             }
             else
             {
