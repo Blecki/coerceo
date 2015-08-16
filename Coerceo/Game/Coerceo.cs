@@ -214,6 +214,16 @@ namespace Game
         }
 
         public byte[] Bytes { get { return BitConverter.GetBytes(Data); } }
+
+        public static bool operator ==(Move x, Move y)
+        {
+            return x.Data == y.Data;
+        }
+
+        public static bool operator !=(Move x, Move y)
+        {
+            return x.Data != y.Data;
+        }
     }
 
     public static class Coerceo
@@ -361,7 +371,7 @@ namespace Game
                     for (var x = 0; x < 6; ++x)
                     {
                         var neighbor = Tables.TileAdjacency[tileID][x];
-                        if (neighbor != 0xFF && !Board.GetTile(neighbor).IsEmpty())
+                        if (neighbor != 0xFF && !Board.GetTile(neighbor).IsOutOfPlay())
                         {
                             if (runsCount == 0)
                             {
@@ -380,7 +390,7 @@ namespace Game
 
                     if (runsCount > 1 && runs[0].Start == 0 && runs[runsCount - 1].End == 5)
                     {
-                        runs[0] = new AdjacentRun(runs[runsCount - 1].Start, runs[0].Start, runs[0].Count + runs[runsCount - 1].Count);
+                        runs[0] = new AdjacentRun(runs[runsCount - 1].Start, runs[0].End, runs[0].Count + runs[runsCount - 1].Count);
                         runsCount -= 1;
                     }
 

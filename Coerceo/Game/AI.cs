@@ -7,290 +7,188 @@ using System.Threading;
 
 namespace Game
 {
-    public struct StateTransition
+    public class DataEntry
     {
         public Board Board;
-        public int Score;
+        public int BaseScore;
+        public int ScoreAdjustment;
+        
+        public int CombinedScore { get { return BaseScore + ScoreAdjustment; } }
+
+        public List<MoveTransition> Moves;
+    }
+    
+    public class MoveTransition
+    {
+        public DataEntry NextBoard;
         public Move Move;
-        public byte ScoreDepth;
-        public byte ScoreAlgorithm;
-
-        public StateTransition(byte[] Source)
-        {
-            unsafe
-            {
-                Board = new Board(Source, 0);
-                Score = BitConverter.ToInt32(Source, sizeof(Board));
-                Move = new Move(Source, sizeof(Board) + sizeof(int));
-                ScoreDepth = Source[sizeof(Board) + sizeof(int) + sizeof(Move)];
-                ScoreAlgorithm = Source[sizeof(Board) + sizeof(int) + sizeof(Move) + 1];
-            }
-        }
-
-        public StateTransition WithScoring(byte Algorithm, byte Depth, int Score)
-        {
-            return new StateTransition
-            {
-                Board = this.Board,
-                Score = Score,
-                Move = this.Move,
-                ScoreDepth = Depth,
-                ScoreAlgorithm = Algorithm
-            };
-        }
+        public int Score;
+        public bool Ignored = false;
     }
 
     public static class AI
     {
-        private static Dictionary<Board, List<StateTransition>> GameStates = new Dictionary<Board, List<StateTransition>>();
-        private static List<Board> OpenConfigurations = new List<Board>();
-        private static System.Threading.Mutex StateLock = new Mutex();
+        public static int CountOfConfigurationsScored = 0;
+        private static Random Random = new Random();
 
-        private static List<Tuple<Board, List<StateTransition>>> PendingWrites = new List<Tuple<Board, List<StateTransition>>>();
-        private static System.Threading.Mutex SaveLock = new Mutex();
-        private static System.IO.FileStream File;
-        private static int SaveRate = 100;
-        private static int SaveSleepTime = 200;
-        private static String Filename;
-
-        private static int[] LastExponentials = new int[100];
-        private static int NextLastExponential = 0;
-
-        private static bool Stop = false;
-
-        public static int Stage { get; private set; }
-
-        public static int Exponential
+        public static void Expand(DataEntry Entry)
         {
-            get
+
+            if (Entry.Moves == null)
             {
-                return LastExponentials.Sum() / LastExponentials.Length;
-            }
-        }
-
-        public static int MaxExponential
-        {
-            get
-            {
-                return LastExponentials.Max();
-            }
-        }
-
-        public static int CountOfConfigurationsExplored
-        {
-            get
-            {
-                return GameStates.Count;
-            }
-        }
-
-        public static int CountOfOpenConfigurations
-        {
-            get
-            {
-                return OpenConfigurations.Count;
-            }
-        }
-
-        public static int CountOfPendingWrites
-        {
-            get
-            {
-                return PendingWrites.Count;
-            }
-        }
-
-        public static void StartAI(String Filename)
-        {
-            Stage = 0;
-
-            AI.Filename = Filename;
-
-            for (int i = 0; i < LastExponentials.Length; ++i)
-                LastExponentials[i] = 0;
-
-            (new System.Threading.Thread(StartThread)).Start();
-        }
-
-        private static void StartThread()
-        {
-            var StatesCopy = new Dictionary<Board, List<StateTransition>>();
-
-            /*if (System.IO.File.Exists(Filename))
-            {
-                unsafe
-                {
-                    var file = System.IO.File.OpenRead(Filename);
-                    var buffer = new byte[sizeof(StateTransition)];
-
-                    while (true)
+                Entry.Moves = new List<MoveTransition>(Coerceo.EnumerateLegalMoves(Entry.Board).Select(move =>
                     {
-                        var read = file.Read(buffer, 0, sizeof(Board));
-                        if (read != sizeof(Board)) break;
-
-                        var board = new Board(buffer, 0);
-                        var transitions = new List<StateTransition>();
-
-                        read = file.Read(buffer, 0, 4);
-
-                        var transitionCount = BitConverter.ToInt32(buffer, 0);
-
-                        for (var i = 0; i < transitionCount; ++i)
+                        var nextBoard = new DataEntry
                         {
-                            read = file.Read(buffer, 0, sizeof(StateTransition));
-                            transitions.Add(new StateTransition(buffer));
-                        }
+                            ScoreAdjustment = 0,
+                            Moves = null,
+                            Board = Coerceo.ApplyMove(Entry.Board, move)
+                        };
 
-                        GameStates.Add(board, transitions);
-                        StatesCopy.Add(board, transitions);
-                    }
+                        nextBoard.BaseScore = ScoreBoard(Entry.Board, nextBoard.Board);
 
-                    file.Close();
-                }
-            }*/
-
-            (new System.Threading.Thread(WorkerThread)).Start();
-            (new System.Threading.Thread(WorkerThread)).Start();
-            (new System.Threading.Thread(WorkerThread)).Start();
-            (new System.Threading.Thread(WorkerThread)).Start();
-
-            File = System.IO.File.Open(Filename, System.IO.FileMode.Append);
-
-            //(new System.Threading.Thread(SaveThread)).Start();
-            
-            Stage = 1;
-
-            var discoveredQueue = new List<Board>();
-            foreach (var configuration in StatesCopy)
-                foreach (var transition in configuration.Value)
-                    if (!StatesCopy.ContainsKey(transition.Board))
-                    {
-                        discoveredQueue.Add(transition.Board);
-
-                        if (discoveredQueue.Count > 1000)
-                        {
-                            StateLock.WaitOne();
-                            OpenConfigurations.AddRange(discoveredQueue);
-                            StateLock.ReleaseMutex();
-                            discoveredQueue.Clear();
-                        }
-                    }
-
-            Stage = 2;
-        }
-
-        public static void StopAI()
-        {
-            Stop = true;
-        }
-
-        private static void WorkerThread()
-        {
-            while (!Stop)
-            {
-                StateLock.WaitOne();
-                Board? toConsider = null;
-                if (OpenConfigurations.Count > 0)
-                {
-                    toConsider = OpenConfigurations[OpenConfigurations.Count - 1];
-                    OpenConfigurations.RemoveAt(OpenConfigurations.Count - 1);
-                }
-                StateLock.ReleaseMutex();
-
-                if (toConsider != null && toConsider.HasValue) QueryForMoves(toConsider.Value, 2);
+                        return new MoveTransition
+                            {
+                                NextBoard = nextBoard,
+                                Move = move,
+                                Ignored = false,
+                                Score = nextBoard.BaseScore
+                            };
+                                
+                    }));
             }
         }
 
-        private static void SaveThread()
+        public static void CalculateAdjustedScore(DataEntry Entry, int Depth)
         {
-            while (!Stop)
+            CountOfConfigurationsScored += 1;
+            if (CountOfConfigurationsScored > 10000)
+                return;
+
+            if (Entry.Moves == null)
+                Expand(Entry);
+
+            if (Entry.Moves.Count == 0)
             {
-                SaveLock.WaitOne();
-                if (PendingWrites.Count > SaveRate)
-                {
-                    foreach (var pendingWrite in PendingWrites)
-                    {
-                        File.Write(pendingWrite.Item1.Bytes, 0, 20);
-                        File.Write(BitConverter.GetBytes(pendingWrite.Item2.Count), 0, 4);
-                        foreach (var transition in pendingWrite.Item2)
-                        {
-                            File.Write(transition.Move.Bytes, 0, 2);
-                            File.Write(transition.Board.Bytes, 0, 20);
-                            File.Write(BitConverter.GetBytes(transition.Score), 0, 4);
-                        }
-                    }
-                    PendingWrites.Clear();
-                    File.Flush();
-                }
-                SaveLock.ReleaseMutex();
-
-                System.Threading.Thread.Sleep(SaveSleepTime);
-            }
-        }
-
-        public static void FocusOn(Board Board)
-        {
-            StateLock.WaitOne();
-            OpenConfigurations.Insert(0, Board);
-            StateLock.ReleaseMutex();
-        }
-
-        public static List<StateTransition> QueryForMoves(Board Board, byte ScoringDepth)
-        {
-            List<StateTransition> result;
-
-            StateLock.WaitOne();
-
-            if (!GameStates.TryGetValue(Board, out result))
-            {
-                StateLock.ReleaseMutex();
-
-                result = new List<StateTransition>(Coerceo.EnumerateLegalMoves(Board).Select(m => new StateTransition
-                {
-                    Move = m,
-                    Board = Coerceo.ApplyMove(Board, m),
-                    Score = 0
-                }));
-
-                StateLock.WaitOne();
-
-                for (var i = 0; i < result.Count; ++i)
-                    if (!GameStates.ContainsKey(result[i].Board))
-                        OpenConfigurations.Add(result[i].Board);
-
-                GameStates.Upsert(Board, result);
-
-                StateLock.ReleaseMutex();
-
-                //SaveLock.WaitOne();
-                //PendingWrites.Add(Tuple.Create(Board, result));
-                //SaveLock.ReleaseMutex();
+                // This board is a dead end - the player lost.
+                Entry.ScoreAdjustment = int.MinValue;
             }
             else
-                StateLock.ReleaseMutex();
-
-            for (var i = 0; i < result.Count; ++i)
             {
-                if (result[i].ScoreDepth < ScoringDepth)
-                    result[i] = result[i].WithScoring(1, ScoringDepth, ScoreBoard(result[i].Board, ScoringDepth));
-            }
+                var max = int.MinValue;
+                var baseAverage = Entry.Moves.Sum(m => m.Score) / Entry.Moves.Count;
+                var baseMax = Entry.Moves.Max(m => m.Score);
 
-            return result;
+                foreach (var move in Entry.Moves)
+                {
+                    if (move.Score >= baseMax)
+                    {
+                        if (Depth > 0) CalculateAdjustedScore(move.NextBoard, Depth - 1);
+                        move.Score = move.NextBoard.CombinedScore;
+                        if (move.Score > max) max = move.Score;
+                        move.Ignored = false;
+                    }
+                    else
+                        move.Ignored = true;
+                }
+
+                if (max < 0) // Oh shit?
+                {
+                    foreach (var move in Entry.Moves.Where(m => m.Ignored))
+                    {
+                        if (move.Score >= baseAverage)
+                        {
+                            if (Depth > 0) CalculateAdjustedScore(move.NextBoard, Depth - 2); // We can't afford to look very deeply, though.
+                            move.Score = move.NextBoard.CombinedScore;
+                            if (move.Score > max) max = move.Score;
+                            move.Ignored = false;
+                        }
+                        else
+                            move.Ignored = true;
+                    }
+                }
+
+                if (max < 0) // Dieing here
+                {
+                    foreach (var move in Entry.Moves.Where(m => m.Ignored))
+                    {
+                        if (Depth > 0) CalculateAdjustedScore(move.NextBoard, 0); // We can't afford to look very deeply, though.
+                        move.Score = move.NextBoard.CombinedScore;
+                        if (move.Score > max) max = move.Score;
+                        move.Ignored = false;
+                    }
+                }
+
+                Entry.ScoreAdjustment = -(int)(max * 0.8f);
+            }
         }
 
-        public static int ScoreBoard(Board Board, byte ScoringDepth)
+        public static async Task<Move> PickBestMove(Board Board, int Depth)
+        {
+            CountOfConfigurationsScored = 0;
+            var entry = CreateEntry(Board);
+            await Task.Run(() => CalculateAdjustedScore(entry, Depth));
+            if (entry.Moves.Count == 0) throw new InvalidOperationException();
+            var max = entry.Moves.Where(m => !m.Ignored).Max(m => m.Score);
+            var index = Random.Next(0, entry.Moves.Where(m => !m.Ignored && m.Score == max).Count());
+            return entry.Moves.Where(m => !m.Ignored && m.Score == max).ElementAt(index).Move;
+        }
+
+        public static DataEntry CreateEntry(Board Board)
+        {
+            return new DataEntry
+            {
+                BaseScore = 0,
+                Board = Board,
+                Moves = null
+            };
+        }
+
+        private static Coordinate[][] ControlTiers = new Coordinate[][]
+        {
+            new Coordinate[] { new Coordinate(0x09, 0), new Coordinate(0x09, 1), new Coordinate(0x09, 2), new Coordinate(0x09, 3), new Coordinate(0x09, 4), new Coordinate(0x09, 5) },
+            new Coordinate[] { new Coordinate(0x04, 3), new Coordinate(0x04, 2), new Coordinate(0x06, 05), new Coordinate(0x06, 04), new Coordinate(0x06, 03), new Coordinate(0x0B, 00), new Coordinate(0x0B, 05), new Coordinate(0x0B, 04), new Coordinate(0x0E, 01), new Coordinate(0x0E, 00), new Coordinate(0x0E, 05), new Coordinate(0x0C, 02), new Coordinate(0x0C, 01), new Coordinate(0x0C, 00), new Coordinate(0x07, 03), new Coordinate(0x07, 02), new Coordinate(0x07, 01), new Coordinate(0x04, 04) },
+            new Coordinate[] { new Coordinate(0x04, 00), new Coordinate(0x04, 01), new Coordinate(0x01, 04), new Coordinate(0x01, 03), new Coordinate(0x06, 00), new Coordinate(0x06, 01), new Coordinate(0x06, 02), new Coordinate(0x08, 05), new Coordinate(0x08, 04), new Coordinate(0x0B, 01), new Coordinate(0x0B, 02), new Coordinate(0x0B, 03), new Coordinate(0x10, 00), new Coordinate(0x10, 05), new Coordinate(0x0E, 02), new Coordinate(0x0E, 03), new Coordinate(0x0E, 04), new Coordinate(0x11, 01), new Coordinate(0x11, 00), new Coordinate(0x0C, 03), new Coordinate(0x0C, 04), new Coordinate(0x0C, 05), new Coordinate(0x0A, 02), new Coordinate(0x0A, 01), new Coordinate(0x07, 04), new Coordinate(0x07, 05), new Coordinate(0x07, 00), new Coordinate(0x02, 03), new Coordinate(0x02, 02), new Coordinate(0x04, 05) },
+            new Coordinate[] { new Coordinate(0x00, 03), new Coordinate(0x00, 02), new Coordinate(0x01, 05), new Coordinate(0x01, 00), new Coordinate(0x01, 01), new Coordinate(0x01, 02), new Coordinate(0x03, 05), new Coordinate(0x03, 04), new Coordinate(0x03, 03), new Coordinate(0x08, 00), new Coordinate(0x08, 01), new Coordinate(0x08, 02), new Coordinate(0x08, 03), new Coordinate(0x0D, 00), new Coordinate(0x0D, 05), new Coordinate(0x0D, 04), new Coordinate(0x10, 01), new Coordinate(0x10, 02), new Coordinate(0x10, 03), new Coordinate(0x10, 04), new Coordinate(0x12, 01), new Coordinate(0x12, 00), new Coordinate(0x12, 05), new Coordinate(0x11, 02), new Coordinate(0x11, 03), new Coordinate(0x11, 04), new Coordinate(0x11, 05), new Coordinate(0x0F, 02), new Coordinate(0x0F, 01), new Coordinate(0x0F, 00), new Coordinate(0x0A, 03), new Coordinate(0x0A, 04), new Coordinate(0x0A, 05), new Coordinate(0x0A, 00), new Coordinate(0x05, 03), new Coordinate(0x05, 02), new Coordinate(0x05, 01), new Coordinate(0x02, 04), new Coordinate(0x02, 05), new Coordinate(0x02, 00), new Coordinate(0x02, 01), new Coordinate(0x00, 04) },
+            new Coordinate[] { new Coordinate(0x00, 00), new Coordinate(0x00, 01), new Coordinate(0x03, 00), new Coordinate(0x03, 01), new Coordinate(0x03, 02), new Coordinate(0x0D, 01), new Coordinate(0x0D, 02), new Coordinate(0x0D, 03), new Coordinate(0x12, 02), new Coordinate(0x12, 03), new Coordinate(0x12, 04), new Coordinate(0x0F, 03), new Coordinate(0x0F, 04), new Coordinate(0x0F, 05), new Coordinate(0x05, 04), new Coordinate(0x05, 05), new Coordinate(0x05, 00), new Coordinate(0x00, 05) }
+        };
+
+        private static int[] TierValue = new int[] { 1000, 500, 300, 100, 0 };
+
+        public static int ScoreBoard(Board PreviousBoard, Board Board)
         {
             var previousPlayer = (byte)~Board.Header.WhoseTurnNext;
 
             var r = 0;
 
-            r -= 20 * Board.CountOfHeldTiles(Board.Header.WhoseTurnNext);
-            r += 10 * Board.CountOfHeldTiles(previousPlayer);
+            // Taking tiles is good.
+            r += 50000 * (Board.CountOfHeldTiles(previousPlayer) - PreviousBoard.CountOfHeldTiles(previousPlayer));
 
-            var subMoves = QueryForMoves(Board, (byte)(ScoringDepth - 1));
-            var total = subMoves.Sum(m => m.Score);
+            // Taking pieces is also good.
+            r += 50000 * (PreviousBoard.CountOfPieces(Board.Header.WhoseTurnNext) - Board.CountOfPieces(Board.Header.WhoseTurnNext));
 
-            r = (r + r + (-total / subMoves.Count)) / 3;
+            var tierPieceCount = new int[2, ControlTiers.Length];
+
+            // Encourage board development.
+            for (int i = 0; i < ControlTiers.Length; ++i)
+            {
+                tierPieceCount[0, i] = 0;
+                tierPieceCount[1, i] = 0;
+                foreach (var triangle in ControlTiers[i])
+                {
+                    if (triangle.Triangle % 2 != previousPlayer)
+                    {
+                        tierPieceCount[0, i] += PreviousBoard.GetTriangle(triangle);
+                        tierPieceCount[1, i] += Board.GetTriangle(triangle);
+                    }
+                }
+            }
+
+            for (int i = 0; i < ControlTiers.Length - 1; ++i)
+            {
+                var tierDifference = tierPieceCount[1, i] - tierPieceCount[0, i];
+                r += TierValue[i] * tierDifference;
+            }
 
             return r;
         }

@@ -10,6 +10,12 @@ using Gem.Render;
 
 namespace Game
 {
+    public enum PlayerType
+    {
+        Player,
+        AI
+    }
+
     public class WorldScreen : IScreen
     {
         public Gem.Input Input { get; set; }
@@ -28,11 +34,17 @@ namespace Game
         public List<NormalMapMeshNode> GhostPieceNodes = new List<NormalMapMeshNode>();
         public Texture2D[] PieceTextures;
 
+        public int TotalMoves = 0;
+
         public Board CurrentBoard;
+        public bool GameOver = false;
 
         Gem.Gui.GuiSceneNode Gui;
 
         private List<InputState> InputStack = new List<InputState>();
+        private PlayerType[] PlayerTypes;
+
+        public float ElapsedSeconds { get; private set; }
 
         public void PushInputState(InputState NextState)
         {
@@ -48,8 +60,9 @@ namespace Game
             if (InputStack.Count > 0) InputStack.Last().Exposed(this);
         }
 
-        public WorldScreen()
+        public WorldScreen(PlayerType White, PlayerType Black)
         {
+            PlayerTypes = new PlayerType[] { White, Black };
         }
 
         public void Begin()
@@ -72,6 +85,8 @@ namespace Game
 
             SceneGraph = new Gem.Render.BranchNode();
 
+            Input.ClearBindings();
+            Input.AddAxis("MAIN", new MouseAxisBinding());
             Main.Input.AddBinding("RIGHT", new KeyboardBinding(Keys.Right, KeyBindingType.Held));
             Main.Input.AddBinding("LEFT", new KeyboardBinding(Keys.Left, KeyBindingType.Held));
             Main.Input.AddBinding("UP", new KeyboardBinding(Keys.Up, KeyBindingType.Held));
@@ -80,35 +95,10 @@ namespace Game
             
             Main.Input.AddBinding("CAMERA-DISTANCE-TOGGLE", new KeyboardBinding(Keys.R, KeyBindingType.Held));
 
+            Main.Input.AddBinding("EXIT", new KeyboardBinding(Keys.Escape, KeyBindingType.Pressed));
+
             var hexMesh = Gem.Geo.Gen.CreateUnitPolygon(6);
-            /*var hexMesh = new Gem.Geo.Mesh();
-            hexMesh.verticies = new Gem.Geo.Vertex[13];
-            hexMesh.verticies[0] = baseHexMesh.verticies[0];
-            for (int i = 0; i < 6; ++i)
-            {
-                hexMesh.verticies[i + 1] = baseHexMesh.verticies[i + 1];
-                hexMesh.verticies[i + 7] = baseHexMesh.verticies[i + 1];
-                hexMesh.verticies[i + 7].Position += new Vector3(0.0f, 0.0f, -0.1f);
-            }
-            hexMesh.indicies = new short[baseHexMesh.indicies.Length + 36];
-            baseHexMesh.indicies.CopyTo(hexMesh.indicies, 0);
-            var iindex = baseHexMesh.indicies.Length;
-            for (short i = 1; i < 7; ++i)
-            {
-                short s = i;
-                short e = (short)(i == 6 ? 1 : i + 1);
-
-                hexMesh.indicies[iindex + 0] = s;
-                hexMesh.indicies[iindex + 1] = e;
-                hexMesh.indicies[iindex + 2] = (short)(s + 6);
-                hexMesh.indicies[iindex + 3] = e;
-                hexMesh.indicies[iindex + 4] = (short)(e + 6);
-                hexMesh.indicies[iindex + 5] = (short)(s + 6);
-
-                iindex += 6;
-            }
-            */
-
+            
             hexMesh = Gem.Geo.Gen.FacetCopy(Gem.Geo.Gen.TransformCopy(hexMesh, Matrix.CreateRotationZ((float)System.Math.PI / 2.0f)));
             Gem.Geo.Gen.ProjectTexture(hexMesh, new Vector3(1.0f, 1.0f, 0.0f), Vector3.UnitX * 2, Vector3.UnitY * 2);
             Gem.Geo.Gen.CalculateTangentsAndBiNormals(hexMesh);
@@ -221,23 +211,27 @@ namespace Game
             Gui.DistanceBias = float.NegativeInfinity;
             SceneGraph.Add(Gui);
 
-
-            PushInputState(new Input.TurnScheduler());
-
-            AI.StartAI("AI.TXT");
+            PushInputState(new Input.TurnScheduler(PlayerTypes));
         }
 
         public void DisplayBoard(Board Board)
         {
-            AI.FocusOn(Board);
+            var moveCount = Coerceo.EnumerateLegalMoves(Board).Count();
+            if (moveCount == 0) GameOver = true;
 
-            if (Board.Header.WhoseTurnNext == 0)
+            if (GameOver)
+                Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "GAME OVER");
+            else if (Board.Header.WhoseTurnNext == 0)
                 Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "White to move");
             else
                 Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "Black to move");
 
-            Gui.Find("TILE-COUNT").Properties[0].Values.Upsert("label", String.Format("TILES: {0}",
-                CurrentBoard.Tiles.Count(t => t.IsHeldBy(CurrentBoard.Header.WhoseTurnNext))));
+            Gui.Find("TILE-COUNT").Properties[0].Values.Upsert("label", String.Format("[CONTROLS]\nARROWS: CAMERA\nESC: QUIT\nMOUSE: MOVE\n[GAME]\nWHITE TILES: {0}\nBLACK TILES: {1}\nWHITE PIECES: {2}\nBLACK PIECES: {3}\nMOVES: {4}",
+                CurrentBoard.Tiles.Count(t => t.IsHeldBy(0)),
+                CurrentBoard.Tiles.Count(t => t.IsHeldBy(1)),
+                CurrentBoard.CountOfPieces(0),
+                CurrentBoard.CountOfPieces(1),
+                TotalMoves));
 
             foreach (var piece in PieceNodes) 
                 piece.Hidden = true;
@@ -283,8 +277,13 @@ namespace Game
 
         public void Update(float elapsedSeconds)
         {
-            //if (Main.Input.Check("GRID-UP")) Grid.Orientation.Position.Z += 1;
-            //if (Main.Input.Check("GRID-DOWN")) Grid.Orientation.Position.Z -= 1;
+            if (Main.Input.Check("EXIT"))
+            {
+                Main.Game = new MainMenu();
+                return;
+            }
+
+            ElapsedSeconds = elapsedSeconds;
 
             if (Main.Input.Check("RIGHT")) Camera.Yaw(elapsedSeconds);
             if (Main.Input.Check("LEFT")) Camera.Yaw(-elapsedSeconds);
@@ -321,17 +320,13 @@ namespace Game
                 HoverNode = hoverItems.First(item => item.Distance <= nearestDistance).Node;
             }
 
-            if (InputStack.Count > 0) InputStack.Last().Update(this);
+            if (!GameOver && InputStack.Count > 0) InputStack.Last().Update(this);
 
             var eyeVector = Camera.GetEyeVector();
             Gui.Orientation.Orientation.Z = Gem.Math.Vector.AngleBetweenVectors(Vector2.UnitY, Vector2.Normalize(new Vector2(eyeVector.X, eyeVector.Y)));
 
-            Gui.Find("STATS").Properties[0].Values.Upsert("label", String.Format("AI STATS\nCE:{0}\nOC:{1}\nXP:{2}\nMX:{3}",
-                AI.CountOfConfigurationsExplored,
-                AI.CountOfOpenConfigurations,
-                AI.Exponential,
-                AI.MaxExponential));
-
+            Gui.Find("STATS").Properties[0].Values.Upsert("label", String.Format("AI STATS\nCS:{0}",
+                AI.CountOfConfigurationsScored));
         }
 
         private struct HoverItem

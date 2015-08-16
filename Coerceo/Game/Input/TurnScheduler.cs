@@ -9,22 +9,40 @@ namespace Game.Input
     public class TurnScheduler : InputState
     {
         byte CurrentTurn = 0;
+        PlayerType[] PlayerTypes;
 
-        public TurnScheduler()
+        public TurnScheduler(PlayerType[] PlayerTypes)
         {
-
+            this.PlayerTypes = PlayerTypes;
         }
 
         public override void EnterState(WorldScreen Game)
         {
-            Game.PushInputState(new PlayerTurn(CurrentTurn));
+            PushTurnHandler(Game);
+            Game.TotalMoves = 0;
         }
 
         public override void Exposed(WorldScreen Game)
         {
+            Game.TotalMoves += 1;
+
             CurrentTurn += 1;
             if (CurrentTurn == 2) CurrentTurn = 0;
-            Game.PushInputState(new PlayerTurn(CurrentTurn));
+
+            PushTurnHandler(Game);
+        }
+
+        private void PushTurnHandler(WorldScreen Game)
+        {
+            switch (PlayerTypes[CurrentTurn])
+            {
+                case PlayerType.Player:
+                    Game.PushInputState(new PlayerTurn(CurrentTurn));
+                    break;
+                case PlayerType.AI:
+                    Game.PushInputState(new AIThink(CurrentTurn));
+                    break;
+            }
         }
     }
 }

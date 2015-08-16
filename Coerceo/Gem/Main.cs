@@ -65,6 +65,7 @@ namespace Gem
             graphics.PreferredBackBufferHeight = 600;
             IsMouseVisible = true;
             IsFixedTimeStep = true;
+            //graphics.IsFullScreen = true;
 
             Input = new Input(Window.Handle);
             Input.AddAxis("MAIN", new MouseAxisBinding());
