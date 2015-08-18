@@ -21,7 +21,7 @@ namespace Game.Input
         {
             Game.DisplayBoard(Game.CurrentBoard);
 
-            AsyncTask = AI.PickBestMove(Game.CurrentBoard, 3);
+            AsyncTask = AI.PickBestMove(Game.CurrentBoard, 4);
         }
 
         public override void Covered(WorldScreen Game)

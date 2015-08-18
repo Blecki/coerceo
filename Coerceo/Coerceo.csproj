@@ -61,7 +61,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Game\AI.cs" />
+    <Compile Include="Game\Board.cs" />
     <Compile Include="Game\Coerceo.cs" />
+    <Compile Include="Game\Coordinate.cs" />
+    <Compile Include="Game\Tile.cs" />
+    <Compile Include="Game\Move.cs" />
     <Compile Include="Game\Hex.cs" />
     <Compile Include="Game\Input\AIMovePiece.cs" />
     <Compile Include="Game\Input\AIThink.cs" />

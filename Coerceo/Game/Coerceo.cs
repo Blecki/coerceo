@@ -52,6 +52,7 @@ namespace Game
             {
                 case MoveType.Trade:
                     {
+                        /*
                         // Verify move is legal.
 
                         // Reject move if attempting to snipe own piece.
@@ -63,7 +64,7 @@ namespace Game
 
                         // Reject move if there is no enemy piece at the location.
                         if (Board.GetTriangle(Move.Coordinate) == 0) throw new InvalidOperationException();
-
+                        */
                         // Turn is legal, mutate board.
                         foreach (var tile in Board.Tiles.Where(t => t.IsHeldBy(Board.Header.WhoseTurnNext)).Take(2))
                             Board = Board.WithTile(tile.ID, tile.WithStatus(0x03));
@@ -75,6 +76,7 @@ namespace Game
                     break;
                 case MoveType.MovePiece:
                     {
+                        /*
                         // Verify move is legal.
 
                         // Reject move if attempting to move opponent piece.
@@ -84,15 +86,16 @@ namespace Game
                         if (Board.GetTriangle(Move.Coordinate) == 0) throw new InvalidOperationException();
 
                         // Find destination triangle coordinate.
+                        */
                         var dest = FindMoveNeighbor(Move.Coordinate, Move.Direction);
-
+                        /*
                         // Reject move if player attempted to move off board.
                         if (dest.Invalid) throw new InvalidOperationException();
                         if (Board.GetTile(dest.Tile).IsOutOfPlay()) throw new InvalidOperationException();
 
                         // Reject move if destination triangle is occupied.
                         if (Board.GetTriangle(dest) != 0) throw new InvalidOperationException();
-
+                        */
                         // Move is legal, mutate board.
 
                         Board = Board.WithTile(Move.Tile, Board.GetTile(Move.Tile).WithTriangle(Move.Triangle, 0));
