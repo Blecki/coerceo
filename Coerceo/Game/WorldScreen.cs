@@ -226,7 +226,7 @@ namespace Game
             else
                 Gui.Find("TURN-INDICATOR").Properties[0].Values.Upsert("label", "Black to move");
 
-            Gui.Find("TILE-COUNT").Properties[0].Values.Upsert("label", String.Format("[CONTROLS]\nARROWS: CAMERA\nESC: QUIT\nMOUSE: MOVE\n[GAME]\nWHITE TILES: {0}\nBLACK TILES: {1}\nWHITE PIECES: {2}\nBLACK PIECES: {3}\nMOVES: {4}",
+            Gui.Find("TILE-COUNT").Properties[0].Values.Upsert("label", String.Format("WHITE TILES: {0}\nBLACK TILES: {1}\nWHITE PIECES: {2}\nBLACK PIECES: {3}\nMOVES: {4}",
                 CurrentBoard.Tiles.Count(t => t.IsHeldBy(0)),
                 CurrentBoard.Tiles.Count(t => t.IsHeldBy(1)),
                 CurrentBoard.CountOfPieces(0),
@@ -325,8 +325,8 @@ namespace Game
             var eyeVector = Camera.GetEyeVector();
             Gui.Orientation.Orientation.Z = Gem.Math.Vector.AngleBetweenVectors(Vector2.UnitY, Vector2.Normalize(new Vector2(eyeVector.X, eyeVector.Y)));
 
-            Gui.Find("STATS").Properties[0].Values.Upsert("label", String.Format("AI STATS\nCS:{0}",
-                AI.CountOfConfigurationsScored));
+            Gui.Find("STATS").Properties[0].Values.Upsert("label", String.Format("AI STATS\nCS:{0}\nD:{1}",
+                AIV2.CountOfConfigurationsScored, AIV2.DepthReached));
         }
 
         private struct HoverItem

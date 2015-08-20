@@ -10,10 +10,10 @@ namespace Game
     public class DataEntry
     {
         public Board Board;
-        public int BaseScore;
-        public int ScoreAdjustment;
+        public float BaseScore;
+        public float ScoreAdjustment;
         
-        public int CombinedScore { get { return BaseScore + ScoreAdjustment; } }
+        public float CombinedScore { get { return BaseScore + ScoreAdjustment; } }
 
         public List<MoveTransition> Moves;
     }
@@ -22,13 +22,14 @@ namespace Game
     {
         public DataEntry NextBoard;
         public Move Move;
-        public int Score;
+        public float Score;
         public bool Ignored = false;
     }
 
     public static class AI
     {
         public static int CountOfConfigurationsScored = 0;
+        public static int DepthReached = 0;
         private static Random Random = new Random();
 
         public static void Expand(DataEntry Entry)
@@ -76,7 +77,9 @@ namespace Game
             }
             else
             {
-                var max = int.MinValue;
+                if (Depth < DepthReached) DepthReached = Depth;
+
+                var max = float.MinValue;
                 var baseAverage = Entry.Moves.Sum(m => m.Score) / Entry.Moves.Count;
                 var baseMax = Entry.Moves.Max(m => m.Score);
 
@@ -93,13 +96,13 @@ namespace Game
                         move.Ignored = true;
                 }
 
-                if (max < 0) // Oh shit?
+                if (max < baseAverage) // The best moves turned out worse than average
                 {
                     foreach (var move in Entry.Moves.Where(m => m.Ignored))
                     {
                         if (move.Score >= baseAverage)
                         {
-                            if (Depth > 0) CalculateAdjustedScore(move.NextBoard, Depth - 2); // We can't afford to look very deeply, though.
+                            if (Depth > 0) CalculateAdjustedScore(move.NextBoard, System.Math.Max(Depth - 2, 0)); // We can't afford to look very deeply, though.
                             move.Score = move.NextBoard.CombinedScore;
                             if (move.Score > max) max = move.Score;
                             move.Ignored = false;
@@ -109,7 +112,7 @@ namespace Game
                     }
                 }
 
-                if (max < 0) // Dieing here
+                if (max < baseAverage) // Well we tried the second best and they still sucked.
                 {
                     foreach (var move in Entry.Moves.Where(m => m.Ignored))
                     {
@@ -127,6 +130,7 @@ namespace Game
         public static async Task<Move> PickBestMove(Board Board, int Depth)
         {
             CountOfConfigurationsScored = 0;
+            DepthReached = Depth;
             var entry = CreateEntry(Board);
             await Task.Run(() => CalculateAdjustedScore(entry, Depth));
             if (entry.Moves.Count == 0) throw new InvalidOperationException();
@@ -156,11 +160,11 @@ namespace Game
 
         private static int[] TierValue = new int[] { 1000, 500, 300, 100, 0 };
 
-        public static int ScoreBoard(Board PreviousBoard, Board Board)
+        public static float ScoreBoard(Board PreviousBoard, Board Board)
         {
             var previousPlayer = (byte)~Board.Header.WhoseTurnNext;
 
-            var r = 0;
+            var r = 0.0f;
 
             // Taking tiles is good.
             r += 50000 * (Board.CountOfHeldTiles(previousPlayer) - PreviousBoard.CountOfHeldTiles(previousPlayer));

@@ -60,6 +60,7 @@
     <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Game\AIV2.cs" />
     <Compile Include="Game\AI.cs" />
     <Compile Include="Game\Board.cs" />
     <Compile Include="Game\Coerceo.cs" />
